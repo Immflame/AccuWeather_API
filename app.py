@@ -1,43 +1,56 @@
 import dash
-from dash import dcc, html
-import plotly.graph_objects as go
-import pandas as pd
-
-
-data = {
-    'location': ['Место A', 'Место B', 'Место C'],
-    'time': ['2024-10-27 12:00', '2024-10-27 12:00', '2024-10-27 12:00'],
-    'temperature': [20, 25, 18],
-    'wind_speed': [10, 5, 15],
-    'precipitation': [0.1, 0, 0.5]
-}
-df = pd.DataFrame(data)
+from dash import dcc, html, Input, Output
+import plotly.express as px
+from utils import get_weather_data_sheet
+import re
 
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
-    html.H1("Прогноз погоды"),
-    dcc.Dropdown(
-        id='location-dropdown',
-        options=[{'label': loc, 'value': loc} for loc in df['location'].unique()],
-        value=df['location'].iloc[0]
-    ),
+    html.H1("Погода в городах"),
+    html.Div([
+        html.Label("Введите координаты городов (например, (52, 64), (34, 77))...:"),
+        dcc.Input(id='coords-input', type='text', value='(52, 64), (34, 77)', style={'width': '50%'}),
+        html.Button('Получить данные', id='submit-button'),
+    ]),
+    html.Div([
+        html.Label("Выберите параметр:"),
+        dcc.Dropdown(id='param-dropdown',
+                     options=[{'label': i, 'value': i} for i in
+                              ['temperature', 'wind_speed', 'precip_prob', 'humidities']],
+                     value='temperature'),
+    ]),
+    html.Div([
+        html.Label("Выберите количество дней:"),
+        dcc.Slider(id='days-slider', min=1, max=5, step=1, value=5, marks={i: str(i) for i in range(1, 6)}),
+    ]),
     dcc.Graph(id='weather-graph'),
 ])
 
+
 @app.callback(
-    dash.Output('weather-graph', 'figure'),
-    dash.Input('location-dropdown', 'value')
+    Output('weather-graph', 'figure'),
+    Input('submit-button', 'n_clicks'),
+    Input('coords-input', 'value'),
+    Input('param-dropdown', 'value'),
+    Input('days-slider', 'value')
 )
-def update_graph(selected_location):
-    filtered_df = df[df['location'] == selected_location]
-    fig = go.Figure()
+def update_graph(n_clicks, coords_str, param, num_days):
+    if n_clicks is None:
+        return {}
 
-    fig.add_trace(go.Scatter(x=filtered_df['time'], y=filtered_df['temperature'], name='Температура', mode='lines+markers'))
-    fig.add_trace(go.Scatter(x=filtered_df['time'], y=filtered_df['wind_speed'], name='Скорость ветра', mode='lines+markers'))
-    fig.add_trace(go.Bar(x=filtered_df['time'], y=filtered_df['precipitation'], name='Осадки'))
+    try:
+        cords_list = [(int(x), int(y)) for x, y in re.findall(r'\((\d+), (\d+)\)', coords_str)]
+        if not isinstance(cords_list, tuple) and not all(isinstance(coord, tuple) for coord in cords_list):
 
-    fig.update_layout(title=f'Прогноз погоды для {selected_location}', xaxis_title='Время', yaxis_title='Значение')
+            raise ValueError("Неверный формат координат")
+
+    except (ValueError, SyntaxError, NameError):
+        return {'data': [{'type': 'scatter', 'x': [], 'y': []}], 'layout': {'title': 'Ошибка ввода координат'}}
+
+    combined_df = get_weather_data_sheet(cords_list, num_days)
+
+    fig = px.line(combined_df, x="date", y=param, color="coordinates", title=f"Погода: {param}")
     return fig
 
 
